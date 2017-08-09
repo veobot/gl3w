@@ -135,6 +135,12 @@ with open(os.path.join(args.root, 'include/GL/gl3w.h'), 'wb') as f:
 #endif
 
 #ifdef __cplusplus
+#include <cstdio>
+#include <string>
+#include <type_traits>
+#endif
+
+#ifdef __cplusplus
 extern "C" {
 #endif
 
@@ -165,12 +171,64 @@ GL3WglProc gl3wGetProcAddress(const char *proc);
 extern union GL3WProcs gl3wProcs;
 
 /* OpenGL functions */
+#ifdef __cplusplus
+}
+#endif
+
+#ifndef GL3W_EXIT_ON_ERROR
+#define GL3W_EXIT_ON_ERROR 0
+#endif
+
+#if !defined(__cplusplus) || !defined(GL3W_DEBUG) || __cplusplus < 201703L
 ''')
     for proc in procs:
         write(f, '#define {0[p]: <48} gl3wProcs.gl.{0[p_s]}\n'.format(proc_t(proc)))
     write(f, r'''
-#ifdef __cplusplus
+#else
+''')
+    write(f, r'''
+
+extern std::string getStackTrace(unsigned int maxFrames);
+std::string getErrorString(GLenum error)
+{
+    switch (error) 
+    {
+    
+      case 0x0500: return "GL_INVALID_ENUM";
+      case 0x0501: return "GL_INVALID_VALUE";
+      case 0x0502: return "GL_INVALID_OPERATION";
+      case 0x0503: return "GL_STACK_OVERFLOW";
+      case 0x0504: return "GL_STACK_UNDERFLOW";
+      case 0x0505: return "GL_OUT_OF_MEMORY";
+      case 0x0506: return "GL_INVALID_FRAMEBUFFER_OPERATION";
+      case 0x0507: return "GL_CONTEXT_LOST";
+      default : return std::to_string(error);
+    }
 }
+
+''')
+    for proc in procs:
+        write(f, 'template<typename... Args> auto {0[p]}(Args ... args) -> decltype(gl3wProcs.gl.{0[p_s]}(args...))'
+                    '{{'
+                       'constexpr bool isVoid = std::is_same<decltype(gl3wProcs.gl.{0[p_s]}(args...)), void>::value;'
+                       'if constexpr (!isVoid)'
+                       '{{'
+                         'decltype(gl3wProcs.gl.{0[p_s]}(args...)) r = gl3wProcs.gl.{0[p_s]}(args...);'
+                         'GLenum error = gl3wProcs.gl.GetError();'
+                         'if (error) printf(\"{0[p]} error %s\\n%s\\n\", getErrorString(error).c_str(), getStackTrace(20).c_str());'
+                         'if(error && GL3W_EXIT_ON_ERROR) exit(0);'
+                         'return r;'
+                       '}}'
+                       'else'
+                       '{{'
+                         'gl3wProcs.gl.{0[p_s]}(args...);'
+                         'GLenum error = gl3wProcs.gl.GetError();'
+                         'if (error) printf(\"{0[p]} error %s\\n%s\\n\", getErrorString(error).c_str(), getStackTrace(20).c_str());'
+                         'if(error && GL3W_EXIT_ON_ERROR) exit(0);'
+                       '}}'
+                    '}}'
+        '\n'.format(proc_t(proc)))
+    write(f, r'''
 #endif
 
 #endif
